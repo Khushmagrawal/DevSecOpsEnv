@@ -1,0 +1,52 @@
+# OpenEnv Configuration for DevSecOps Gatekeeper Environment
+spec_version: 1
+name: devsecops_env
+type: space
+runtime: fastapi
+app: server.app:app
+port: 8000
+version: "1.0.0"
+
+# Description and competition info
+description: "DevSecOps Gatekeeper RL environment - Train agents to make security-aware code review decisions"
+competition:
+  name: "Meta PyTorch Hackathon 2026"
+  track: "Open-M RL Environments"
+
+# Environment metadata
+environment:
+  class: "DevSecOpsEnvironment"
+  concurrent_sessions: true
+  render_mode: "text"
+  reward_range: [-3.0, 7.0]
+  
+# Tasks
+tasks:
+  - id: "task1"
+    name: "Docs-Only PR (Easy)"
+    description: "Documentation-only PR review"
+    optimal_steps: 2
+    optimal_reward: 5.0
+    
+  - id: "task2"
+    name: "Silent API Rename (Medium)"
+    description: "Detect and patch API changes"
+    optimal_steps: 6
+    optimal_reward: 7.0
+    
+  - id: "task3"
+    name: "Poisoned Package (Hard)"
+    description: "Block supply chain attack"
+    optimal_steps: 3
+    optimal_reward: 5.0
+
+# Deployment
+deployment:
+  docker:
+    image: "devsecops-env:latest"
+    dockerfile: "Dockerfile"
+  
+  huggingface:
+    space_sdk: "docker"
+    repo_id: "username/devsecops_env"
+
