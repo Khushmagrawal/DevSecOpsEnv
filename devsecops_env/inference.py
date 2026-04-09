@@ -10,11 +10,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
     from devsecops_env.server.devsecops_env_environment import DevSecOpsEnvironment
     from devsecops_env.models import DevsecopsAction
-    from devsecops_env.server.graders import compute_normalized_reward
+    from devsecops_env.server.graders import compute_reward
 except ImportError:
     from server.devsecops_env_environment import DevSecOpsEnvironment
     from models import DevsecopsAction
-    from server.graders import compute_normalized_reward
+    from server.graders import compute_reward
 
 # Setup Configuration
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
@@ -188,6 +188,7 @@ async def run_episode(client, env, task_id: str) -> None:
             break
     
     score = obs.reward
+    score = min(max(score, 0.001), 0.999)
     success = score >= SUCCESS_SCORE_THRESHOLD
     
     log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
