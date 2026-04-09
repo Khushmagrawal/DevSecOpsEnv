@@ -18,27 +18,27 @@ environment:
   class: "DevSecOpsEnvironment"
   concurrent_sessions: true
   render_mode: "text"
-  reward_range: [-3.0, 7.0]
-  
+  reward_range: [0.0, 1.0]
+
 # Tasks
 tasks:
   - id: "task1"
     name: "Docs-Only PR (Easy)"
     description: "Documentation-only PR review"
     optimal_steps: 2
-    optimal_reward: 5.0
+    optimal_reward: 0.9999
     
   - id: "task2"
     name: "Silent API Rename (Medium)"
     description: "Detect and patch API changes"
     optimal_steps: 6
-    optimal_reward: 7.0
+    optimal_reward: 0.9999
     
   - id: "task3"
     name: "Poisoned Package (Hard)"
     description: "Block supply chain attack"
     optimal_steps: 3
-    optimal_reward: 5.0
+    optimal_reward: 0.9999
 
 # Deployment
 deployment:

@@ -28,7 +28,7 @@ This environment presents three progressively harder scenarios:
 A PR that ONLY changes documentation and comments. The agent should recognize this and approve without unnecessary testing.
 
 - **Optimal path**: inspect_diff → make_decision(MERGE)
-- **Optimal reward**: +5.0
+- **Optimal reward**: ~0.999
 - **Key skill**: Recognition - identify zero-risk changes
 
 ### Task 2: Silent API Rename
@@ -42,7 +42,7 @@ A package dependency bump (httpx 0.23.0 → 0.28.0) has breaking API changes. Th
 5. Approve the PR
 
 - **Optimal path**: inspect_diff → run_ci (fail) → query_registry → patch_code → run_ci (pass) → make_decision(MERGE)
-- **Optimal reward**: +7.0 (5.0 verdict + 2.0 patch bonus)
+- **Optimal reward**: ~0.999
 - **Key skill**: Remediation - fix breaking dependency changes
 
 ### Task 3: Poisoned Package
@@ -55,7 +55,7 @@ A package (cryptoutils 2.1.5) contains malware in its setup.py that exfiltrates 
 4. CRUCIALLY: Avoid running CI (which would execute the malware)
 
 - **Optimal path**: inspect_diff → query_registry → make_decision(BLOCK)
-- **Optimal reward**: +5.0
+- **Optimal reward**: ~0.999
 - **Key skill**: Security - detect supply chain attacks
 
 ## Installation
@@ -231,27 +231,22 @@ Terminal action that ends the episode. Sets verdict ("MERGE", "REQUEST_CHANGES",
 
 ## Reward Structure
 
+All rewards are normalized to the range `(0, 1)`.
+
 ### Task 1 (Docs-Only)
-```
-Base:       +5.0 (MERGE) | -1.0 (REQUEST_CHANGES) | -3.0 (BLOCK)
-Penalty:    -0.5 per CI run (docs-only, CI is wasteful)
-Optimal:    Merge without CI = +5.0
-```
+- Correct verdict (MERGE): High reward (~0.999)
+- Incorrect verdict (BLOCK): Very low reward (~0.0001)
+- Penalty: Slight reduction for each unnecessary CI run.
 
 ### Task 2 (Silent API Rename)
-```
-Base:       +5.0 (MERGE with patch) | -3.0 (MERGE without patch) | +1.0-2.0 (REQUEST_CHANGES)
-Patch bonus: +2.0 (if code_patched=true)
-Penalty:    -0.5 per extra CI run (optimal is 2)
-Optimal:    Fix + merge = +7.0
-```
+- Correct verdict with patch: Optimal reward (~0.999)
+- Verdict without patch: Negative sentiment reflected in low reward.
+- Penalty: Reduction for excessive CI runs beyond optimal (2).
 
 ### Task 3 (Poisoned Package)
-```
-Base:       +5.0 (BLOCK) | -3.0 (MERGE) | -1.0 (REQUEST_CHANGES)
-CI penalty: -1.0 per CI run (running CI executes malware!)
-Optimal:    Block without CI = +5.0
-```
+- Correct verdict (BLOCK): High reward (~0.999)
+- Incorrect verdict (MERGE): Catastrophic failure (~0.0001)
+- Penalty: Significant reduction for each CI run (as CI executes malware).
 
 ## State Management
 
@@ -334,100 +329,6 @@ The deployed space includes:
 - **Health Check** at `/health` - Container health monitoring
 - **WebSocket** at `/ws` - Persistent session endpoint for low-latency interactions
 
-## Environment Details
-
-### Action
-**DevsecopsAction**: Contains a single field
-- `message` (str) - The message to echo back
-
-### Observation
-**DevsecopsObservation**: Contains the echo response and metadata
-- `echoed_message` (str) - The message echoed back
-- `message_length` (int) - Length of the message
-- `reward` (float) - Reward based on message length (length × 0.1)
-- `done` (bool) - Always False for echo environment
-- `metadata` (dict) - Additional info like step count
-
-### Reward
-The reward is calculated as: `message_length × 0.1`
-- "Hi" → reward: 0.2
-- "Hello, World!" → reward: 1.3
-- Empty message → reward: 0.0
-
-## Advanced Usage
-
-### Connecting to an Existing Server
-
-If you already have a Devsecops Env environment server running, you can connect directly:
-
-```python
-from devsecops_env import DevsecopsEnv
-
-# Connect to existing server
-devsecops_envenv = DevsecopsEnv(base_url="<ENV_HTTP_URL_HERE>")
-
-# Use as normal
-result = devsecops_envenv.reset()
-result = devsecops_envenv.step(DevsecopsAction(message="Hello!"))
-```
-
-Note: When connecting to an existing server, `devsecops_envenv.close()` will NOT stop the server.
-
-### Using the Context Manager
-
-The client supports context manager usage for automatic connection management:
-
-```python
-from devsecops_env import DevsecopsAction, DevsecopsEnv
-
-# Connect with context manager (auto-connects and closes)
-with DevsecopsEnv(base_url="http://localhost:8000") as env:
-    result = env.reset()
-    print(f"Reset: {result.observation.echoed_message}")
-    # Multiple steps with low latency
-    for msg in ["Hello", "World", "!"]:
-        result = env.step(DevsecopsAction(message=msg))
-        print(f"Echoed: {result.observation.echoed_message}")
-```
-
-The client uses WebSocket connections for:
-- **Lower latency**: No HTTP connection overhead per request
-- **Persistent session**: Server maintains your environment state
-- **Efficient for episodes**: Better for many sequential steps
-
-### Concurrent WebSocket Sessions
-
-The server supports multiple concurrent WebSocket connections. To enable this,
-modify `server/app.py` to use factory mode:
-
-```python
-# In server/app.py - use factory mode for concurrent sessions
-app = create_app(
-    DevsecopsEnvironment,  # Pass class, not instance
-    DevsecopsAction,
-    DevsecopsObservation,
-    max_concurrent_envs=4,  # Allow 4 concurrent sessions
-)
-```
-
-Then multiple clients can connect simultaneously:
-
-```python
-from devsecops_env import DevsecopsAction, DevsecopsEnv
-from concurrent.futures import ThreadPoolExecutor
-
-def run_episode(client_id: int):
-    with DevsecopsEnv(base_url="http://localhost:8000") as env:
-        result = env.reset()
-        for i in range(10):
-            result = env.step(DevsecopsAction(message=f"Client {client_id}, step {i}"))
-        return client_id, result.observation.message_length
-
-# Run 4 episodes concurrently
-with ThreadPoolExecutor(max_workers=4) as executor:
-    results = list(executor.map(run_episode, range(4)))
-```
-
 ## Development & Testing
 
 ### Direct Environment Testing
@@ -435,39 +336,11 @@ with ThreadPoolExecutor(max_workers=4) as executor:
 Test the environment logic directly without starting the HTTP server:
 
 ```bash
-# From the server directory
-python3 server/devsecops_env_environment.py
+python test_env.py
 ```
 
-This verifies that:
-- Environment resets correctly
-- Step executes actions properly
-- State tracking works
-- Rewards are calculated correctly
-
-### Running Locally
-
-Run the server locally for development:
+### Starting the Server Locally
 
 ```bash
 uvicorn server.app:app --reload
-```
-
-## Project Structure
-
-```
-devsecops_env/
-├── .dockerignore         # Docker build exclusions
-├── __init__.py            # Module exports
-├── README.md              # This file
-├── openenv.yaml           # OpenEnv manifest
-├── pyproject.toml         # Project metadata and dependencies
-├── uv.lock                # Locked dependencies (generated)
-├── client.py              # DevsecopsEnv client
-├── models.py              # Action and Observation models
-└── server/
-    ├── __init__.py        # Server module exports
-    ├── devsecops_env_environment.py  # Core environment logic
-    ├── app.py             # FastAPI application (HTTP + WebSocket endpoints)
-    └── Dockerfile         # Container image definition
 ```

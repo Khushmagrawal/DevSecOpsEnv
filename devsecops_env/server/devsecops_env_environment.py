@@ -43,7 +43,7 @@ except ImportError:
     )
 from .scenarios import load_scenario, get_reward_calculator
 from .mock_tools import dispatch_tool
-from .graders import compute_reward
+from .graders import compute_reward, compute_normalized_reward
 
 
 class DevSecOpsEnvironment(Environment):
@@ -243,8 +243,8 @@ class DevSecOpsEnvironment(Environment):
             self._verdict = action.verdict
             self._final_justification = action.justification or ""
             
-            # Calculate step reward based on verdict + work done
-            step_reward = compute_reward(
+            # Calculate normalized step reward [0, 1] based on verdict + work done
+            step_reward = compute_normalized_reward(
                 task_id=self._scenario["task_id"],
                 verdict=self._verdict,
                 ci_runs_used=self._ci_runs_used,

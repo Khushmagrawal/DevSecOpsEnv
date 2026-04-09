@@ -187,16 +187,7 @@ async def run_episode(client, env, task_id: str) -> None:
                 last_verdict = "REQUEST_CHANGES"
             break
     
-    score = 0.0
-    if last_verdict:
-        score = compute_normalized_reward(
-            task_id=task_id,
-            verdict=last_verdict,
-            ci_runs_used=sum(1 for r in obs.pipeline_history if r.tool_name == "run_ci"),
-            code_patched=any(r.tool_name == "patch_code" for r in obs.pipeline_history),
-        )
-    
-    score = min(max(score, 0.001), 0.999)
+    score = obs.reward
     success = score >= SUCCESS_SCORE_THRESHOLD
     
     log_end(success=success, steps=steps_taken, score=score, rewards=rewards)

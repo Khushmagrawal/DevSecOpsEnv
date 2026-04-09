@@ -39,6 +39,7 @@ from devsecops_env.server.scenarios import (
 from devsecops_env.server.mock_tools import dispatch_tool
 from devsecops_env.server.graders import (
     compute_reward,
+    compute_normalized_reward,
     get_optimal_reward,
     get_task_specs,
 )
@@ -212,39 +213,61 @@ def test_task3_malware_detection():
 def test_reward_calculation():
     """Test that reward functions compute correct values."""
     print("\n" + "="*60)
-    print("TEST 5: Reward Calculation")
+    print("TEST 5: Reward Calculation (Normalized)")
     print("="*60)
     
     # Task 1: Docs-only
-    reward_optimal = compute_reward("task1", verdict="MERGE", ci_runs_used=0)
-    assert reward_optimal == 5.0, f"Task1 optimal should be 5.0, got {reward_optimal}"
+    reward_optimal = compute_normalized_reward("task1", verdict="MERGE", ci_runs_used=0)
+    assert 0.99 <= reward_optimal < 1.0
     
-    reward_wasted = compute_reward("task1", verdict="MERGE", ci_runs_used=3)
-    assert reward_wasted < reward_optimal, "Task1 with wasted CI should be less"
-    assert reward_wasted == 3.5, f"Task1 with 3 CI runs should be 3.5, got {reward_wasted}"
-    print(f"✓ Task1: Optimal={reward_optimal}, With 3 CI runs={reward_wasted}")
+    reward_wasted = compute_normalized_reward("task1", verdict="MERGE", ci_runs_used=3)
+    assert reward_wasted < reward_optimal
+    print(f"✓ Task1: Optimal={reward_optimal:.4f}, With 3 CI runs={reward_wasted:.4f}")
     
     # Task 2: Silent API Rename
-    reward_full_opt = compute_reward("task2", verdict="MERGE", ci_runs_used=2, code_patched=True)
-    assert reward_full_opt == 7.0, f"Task2 optimal should be 7.0, got {reward_full_opt}"
+    reward_full_opt = compute_normalized_reward("task2", verdict="MERGE", ci_runs_used=2, code_patched=True)
+    assert 0.99 <= reward_full_opt < 1.0
     
-    reward_merged_broken = compute_reward("task2", verdict="MERGE", ci_runs_used=0, code_patched=False)
-    assert reward_merged_broken == -3.0, f"Task2 merged broken should be -3.0, got {reward_merged_broken}"
-    print(f"✓ Task2: Optimal={reward_full_opt}, Merged broken={reward_merged_broken}")
+    reward_merged_broken = compute_normalized_reward("task2", verdict="MERGE", ci_runs_used=0, code_patched=False)
+    assert reward_merged_broken < 0.1
+    print(f"✓ Task2: Optimal={reward_full_opt:.4f}, Merged broken={reward_merged_broken:.4f}")
     
     # Task 3: Poisoned Package
-    reward_blocked = compute_reward("task3", verdict="BLOCK", ci_runs_used=0)
-    assert reward_blocked == 5.0, f"Task3 blocked should be 5.0, got {reward_blocked}"
+    reward_blocked = compute_normalized_reward("task3", verdict="BLOCK", ci_runs_used=0)
+    assert 0.99 <= reward_blocked < 1.0
     
-    reward_merged_malware = compute_reward("task3", verdict="MERGE", ci_runs_used=0)
-    assert reward_merged_malware == -3.0, f"Task3 merged malware should be -3.0, got {reward_merged_malware}"
+    reward_merged_malware = compute_normalized_reward("task3", verdict="MERGE", ci_runs_used=0)
+    assert reward_merged_malware < 0.1
     
-    reward_ci_malware = compute_reward("task3", verdict="BLOCK", ci_runs_used=2)
-    assert reward_ci_malware < reward_blocked, "Task3 with CI runs should be less"
-    assert reward_ci_malware == 3.0, f"Task3 blocked but 2 CI runs should be 3.0, got {reward_ci_malware}"
-    print(f"✓ Task3: Blocked={reward_blocked}, Merged malware={reward_merged_malware}, With 2 CI runs={reward_ci_malware}")
+    reward_ci_malware = compute_normalized_reward("task3", verdict="BLOCK", ci_runs_used=2)
+    assert reward_ci_malware < reward_blocked
+    print(f"✓ Task3: Blocked={reward_blocked:.4f}, Merged malware={reward_merged_malware:.4f}, With 2 CI runs={reward_ci_malware:.4f}")
     
-    print("✓ All reward calculations correct\n")
+    print("✓ All reward calculations correct and normalized\n")
+
+
+def test_reward_strictness():
+    """Test that rewards are strictly (0, 1)."""
+    print("\n" + "="*60)
+    print("TEST 6: Reward Range Strictness (0, 1)")
+    print("="*60)
+    
+    # Test boundary cases
+    tasks = ["task1", "task2", "task3"]
+    for task_id in tasks:
+        # Optimal
+        r_max = compute_normalized_reward(task_id, verdict="MERGE" if task_id != "task3" else "BLOCK", code_patched=True)
+        assert 0.0 < r_max < 1.0
+        assert r_max != 1.0
+        
+        # Worst case
+        r_min = compute_normalized_reward(task_id, verdict="BLOCK" if task_id != "task3" else "MERGE", ci_runs_used=10)
+        assert 0.0 < r_min < 1.0
+        assert r_min != 0.0
+        
+        print(f"✓ {task_id}: Min={r_min:.4f}, Max={r_max:.4f} (Strictly within 0 and 1)")
+    
+    print("✓ All rewards strictly within (0, 1) range\n")
 
 
 # ============================================================
@@ -282,15 +305,15 @@ def test_episode_task1():
     )
     obs = env.step(action)
     assert obs.done == True
-    assert obs.episode_reward == 5.0  # Optimal reward
+    assert 0.99 <= obs.episode_reward < 1.0  # Optimal normalized reward
     assert obs.step_count == 2
-    print(f"✓ Step 2 (make_decision): Done={obs.done}, Reward={obs.episode_reward}")
+    print(f"✓ Step 2 (make_decision): Done={obs.done}, Reward={obs.episode_reward:.4f}")
     
     summary = env.get_episode_summary()
     assert summary["verdict"] == "MERGE"
     assert summary["ci_runs_used"] == 0
-    assert summary["episode_reward"] == 5.0
-    print(f"✓ Episode summary: ci_runs=0, verdict=MERGE, reward=5.0\n")
+    assert 0.99 <= summary["episode_reward"] < 1.0
+    print(f"✓ Episode summary: ci_runs=0, verdict=MERGE, reward={summary['episode_reward']:.4f}\n")
 
 
 def test_episode_task2():
@@ -343,8 +366,8 @@ def test_episode_task2():
     )
     obs = env.step(action)
     assert obs.done == True
-    assert obs.episode_reward == 7.0  # Optimal reward
-    print(f"✓ Step 5 (make_decision): Done={obs.done}, Reward={obs.episode_reward}\n")
+    assert 0.99 <= obs.episode_reward < 1.0  # Optimal normalized reward
+    print(f"✓ Step 5 (make_decision): Done={obs.done}, Reward={obs.episode_reward:.4f}\n")
 
 
 def test_episode_task3():
@@ -383,9 +406,9 @@ def test_episode_task3():
     )
     obs = env.step(action)
     assert obs.done == True
-    assert obs.episode_reward == 5.0  # Optimal reward
+    assert 0.99 <= obs.episode_reward < 1.0  # Optimal normalized reward
     assert obs.budget.ci_runs == 5  # Did NOT run CI on malware (budget still full)
-    print(f"✓ Step 3 (make_decision): Done={obs.done}, Reward={obs.episode_reward}, ci_runs={obs.budget.ci_runs}\n")
+    print(f"✓ Step 3 (make_decision): Done={obs.done}, Reward={obs.episode_reward:.4f}, ci_runs={obs.budget.ci_runs}\n")
 
 
 # ============================================================
@@ -404,6 +427,7 @@ def run_all_tests():
         test_task2_code_patching()
         test_task3_malware_detection()
         test_reward_calculation()
+        test_reward_strictness()
         test_episode_task1()
         test_episode_task2()
         test_episode_task3()
