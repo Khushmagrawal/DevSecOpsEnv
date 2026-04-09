@@ -63,30 +63,60 @@ def get_mock_action(task_id: str, step: int) -> str:
     return '{"tool_name": "inspect_diff"}'
 
 
+import textwrap
+
 def build_prompt(obs) -> str:
-    prompt = f"Review the Pull Request '{obs.pr.title}'. \n"
-    prompt += "Available Tools: inspect_diff, run_ci, patch_code, query_package_registry, search_vuln_db, make_decision\n"
-    prompt += "Output exactly ONE JSON object with tool_name and required parameters."
+    history = "\n".join([f"- Step {t.step}: {t.tool_name} -> {t.result[:100]}" for t in obs.pipeline_history])
+    
+    prompt = textwrap.dedent(f"""
+        # TASK: Review Pull Request
+        PR Title: {obs.pr.title}
+        Task Objective: {obs.task_id}
+        
+        # CURRENT STATE
+        Step Count: {obs.step_count}/10
+        CI Budget: {obs.budget.ci_runs} runs remaining
+        
+        # HISTORY
+        {history if history else "No actions taken yet."}
+        
+        # LAST TOOL OUTPUT
+        {obs.last_tool_output if obs.last_tool_output else "None"}
+        
+        # AVAILABLE TOOLS
+        - inspect_diff (No params) -> View the code changes
+        - run_ci (scope: "unit_only" or "full") -> Run tests
+        - query_package_registry (pkg: str, version: str) -> Check package safety
+        - search_vuln_db (pkg: str, version: str) -> Check for CVEs
+        - patch_code (file: str, old_code: str, new_code: str) -> Fix a bug
+        - make_decision (verdict: "MERGE"|"BLOCK"|"REQUEST_CHANGES", justification: str) -> FINISH TASK
+        
+        # REQUIREMENT
+        You MUST output a FLAT JSON object. Do not nest parameters inside 'required_parameters'.
+        Example: {{"tool_name": "run_ci", "scope": "unit_only"}}
+        
+        If you have enough info, use 'make_decision' to end the episode.
+    """).strip()
     return prompt
 
 
 def get_model_action(client, obs, step: int) -> str:
-    if not HF_TOKEN:
-        return get_mock_action(obs.task_id, step)
     
     try:
         user_prompt = build_prompt(obs)
         response = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
-                {"role": "system", "content": "You are a DevSecOps AI. Output only JSON actions."},
+                {"role": "system", "content": "You are a DevSecOps Expert AI. You only reply with functional JSON actions."},
                 {"role": "user", "content": user_prompt}
             ],
-            temperature=0.2,
-            max_tokens=150,
+            temperature=0.1,
+            max_tokens=512,
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
+        print(f"[ERROR] Request failed: {e}")
+        # Return mock to allow testing environment logic when API is down
         return get_mock_action(obs.task_id, step)
 
 
@@ -106,12 +136,31 @@ async def run_episode(client, env, task_id: str) -> None:
         action_json = get_model_action(client, obs, step)
         
         try:
-            action_dict = json.loads(action_json)
+            import re
+            
+            if not action_json:
+                raise ValueError("Model returned None (API call failed)")
+                
+            cleaned_json = str(action_json).strip()
+            
+            # Try to find a JSON block in markdown
+            match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', cleaned_json, re.DOTALL)
+            if match:
+                cleaned_json = match.group(1)
+            else:
+                # Fallback: try to find the first { and last }
+                start_idx = cleaned_json.find('{')
+                end_idx = cleaned_json.rfind('}')
+                if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                    cleaned_json = cleaned_json[start_idx:end_idx+1]
+            
+            action_dict = json.loads(cleaned_json)
             action = DevsecopsAction(**action_dict)
             error_msg = None
         except Exception as e:
             action = DevsecopsAction(tool_name="inspect_diff")
-            error_msg = f"Action parse error"
+            raw_text = str(action_json)[:40] if action_json else "None"
+            error_msg = f"Parse err: {str(e)[:40]} | Raw: {raw_text}"
             action_json = '{"tool_name": "inspect_diff"}'
             
         obs = env.step(action)
@@ -147,7 +196,7 @@ async def run_episode(client, env, task_id: str) -> None:
             code_patched=any(r.tool_name == "patch_code" for r in obs.pipeline_history),
         )
     
-    score = min(max(score, 0.0), 1.0)
+    score = min(max(score, 0.001), 0.999)
     success = score >= SUCCESS_SCORE_THRESHOLD
     
     log_end(success=success, steps=steps_taken, score=score, rewards=rewards)

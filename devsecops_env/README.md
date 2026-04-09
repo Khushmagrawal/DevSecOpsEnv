@@ -1,6 +1,6 @@
 ---
 title: DevSecOps Gatekeeper Environment
-emoji: 🛡️
+emoji: 🚀
 colorFrom: blue
 colorTo: purple
 sdk: docker

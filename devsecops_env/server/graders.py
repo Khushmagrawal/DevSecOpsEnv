@@ -346,6 +346,10 @@ def normalize_reward(task_id: str, raw_reward: float) -> float:
     # Normalize to [0, 1]
     normalized = (clamped - min_reward) / (max_reward - min_reward)
     
+    # Ensure strictly between 0 and 1
+    epsilon = 1e-4
+    normalized = max(epsilon, min(1.0 - epsilon, normalized))
+    
     return normalized
 
 

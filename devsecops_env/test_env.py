@@ -409,15 +409,15 @@ def run_all_tests():
         test_episode_task3()
         
         print("\n" + "=" * 60)
-        print("ALL TESTS PASSED ✓")
+        print("ALL TESTS PASSED")
         print("=" * 60 + "\n")
         return True
         
     except AssertionError as e:
-        print(f"\n✗ TEST FAILED: {e}\n")
+        print(f"\n[FAIL] TEST FAILED: {e}\n")
         return False
     except Exception as e:
-        print(f"\n✗ ERROR: {e}\n")
+        print(f"\n[ERROR] ERROR: {e}\n")
         import traceback
         traceback.print_exc()
         return False

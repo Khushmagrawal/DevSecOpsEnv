@@ -264,6 +264,16 @@ class DevsecopsAction(Action):
                 raise ValueError(f"verdict must be one of {valid_verdicts}")
         return v
 
+    class Config:
+        """Pydantic configuration."""
+        extra = "ignore"
+        json_schema_extra = {
+            "example": {
+                "tool_name": "inspect_diff",
+                "pr_id": "pr_001"
+            }
+        }
+
 
 # ============================================================================
 # MAIN OBSERVATION SCHEMA
